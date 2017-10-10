@@ -24,7 +24,7 @@ using namespace std;
 
 typedef struct fam
 {
- char data[1024];
+ unsigned char data[1024];
 }Packet;
 
 typedef struct frame
@@ -32,6 +32,7 @@ typedef struct frame
  int frame_id;
  int seq_no;
  int ack;
+ size_t length;
  Packet packet;
 }Frame;
 
@@ -43,7 +44,7 @@ string listDirectory(){
 DIR *dir;
 struct dirent *ent;
 std::string message;
-if ((dir = opendir ("/home/user")) != NULL) {
+if ((dir = opendir (".")) != NULL) {
   /* print all the files and directories within directory */
   while ((ent = readdir (dir)) != NULL) {
     message += ent->d_name;
@@ -98,11 +99,13 @@ else{
         }
         cout << "File opened for writing" << endl;
         ack_frame.ack = -1;
+        //fcntl(sock,F_SETFL,O_NONBLOCK);
         while(1)
           {
                     memset(&recv_frame,0,sizeof(recv_frame));
                     cout << "receive frame initialized to " << recv_frame.seq_no << endl;
                     recvbytes = recvfrom(sock, &recv_frame,sizeof(recv_frame),0,(struct sockaddr *)remote, &remote_length);
+
                     if(recvbytes == 0)
                         break;
                     cout << "received bytes: " << recvbytes;
@@ -111,7 +114,7 @@ else{
                           if(recvbytes > 0 && (recv_frame.seq_no == ack_frame.ack+1))
                           {
                                 memset(&ack_frame,0,sizeof(ack_frame));
-                                fwrite(recv_frame.packet.data,1,(sizeof(recv_frame.packet.data)),file);
+                                fwrite(recv_frame.packet.data,1,recv_frame.length,file);
                                 cout << "Bytes received from client is " <<  recvbytes << endl;
                                 ack_frame.ack = recv_frame.seq_no;
                                 int n = sendto(sock, &ack_frame, sizeof(ack_frame),0,(struct sockaddr*)remote, remote_length);
@@ -119,7 +122,7 @@ else{
                            }
                            else{
                                 if(recv_frame.seq_no < ack_frame.ack+1 ){
-                                        sleep(2);
+                                        //sleep(2);
                                         if(recv_frame.seq_no == ack_frame.ack+1)
                                             continue;
                                         int nack_size = sendto(sock, &ack_frame, sizeof(ack_frame),0,(struct sockaddr*)remote, remote_length);
@@ -142,20 +145,63 @@ else{
     else if(token_command == "get")
     {
         if(!(file = fopen(fname.c_str(),"rb")))
-               perror("Error:");
+        {
+            perror("Error:");
+            frame.seq_no = -10;
+            int numbytes = sendto(sock, &frame,sizeof(frame),0,(struct sockaddr*)remote, remote_length);
+            cout << "File doesn't exist or could not be opened" << endl;
+            return;
+        }
+        else
+        {
         cout << "opened file successfully!" << endl;
         fseek(file, 0, SEEK_END);
         int bsize = ftell(file);
         cout << "Total file size is " << bsize << endl ;
         fseek(file, 0, SEEK_SET);
-         while(!feof(file))
+        size_t n;
+//        if(bsize < 1024)
+//        {
+//              fread(frame.packet.data,1,bsize,file);
+//              frame.packet.data[bsize] = '\0';
+//              int numbytes = sendto(sock, &frame,sizeof(frame),0,(struct sockaddr*)remote, remote_length);
+//              cout << "Frame sent: " << frame.seq_no << endl;
+//              cout << "Sent " << numbytes << " bytes" << endl;
+//        }
+         while(1)
          {
 
               frame.seq_no = frme_id;
-              fread(frame.packet.data,1,1024,file);
+              n = fread(frame.packet.data,1,sizeof(frame.packet.data),file);
+              cout << "Bytes read from read: " << n  << endl;
+              frame.length = n;
+              if(n < 1024)
+              {
+                  //frame.packet.data[n] = '\0';
+          resend: int numbytes = sendto(sock, &frame,sizeof(frame),0,(struct sockaddr*)remote, remote_length);
+                  cout << "Frame sent: " << frame.seq_no << endl;
+                  //cout << "Sent " << strlen(frame.packet.data) << " bytes" << endl;
+                  int recvbytes = recvfrom(sock, &recv_frame, sizeof(recv_frame),0,(struct sockaddr*)remote,&remote_length);
+                  if (recvbytes > 0){
+                    if(recv_frame.ack == frme_id){
+                        cout << "ack received: " << recv_frame.ack << endl;
+                        int numbytes = sendto(sock, &frame,0,0,(struct sockaddr*)remote, remote_length);
+                        cout << "File sent from client is: " << fname << endl;
+                        fclose(file);
+                        break;
+                    }
+                    else
+                        {
+                        goto resend;
+                        }
+
+                    }
+
+              }
+
               int numbytes = sendto(sock, &frame,sizeof(frame),0,(struct sockaddr*)remote, remote_length);
               cout << "Frame sent: " << frame.seq_no << endl;
-              cout << "Sent " << numbytes << " bytes" << endl;
+              //cout << "Sent " << strlen(frame.packet.data) << " bytes of data" << endl;
               memset(&frame,'0',sizeof(frame));
 
               //sleep(1);
@@ -176,9 +222,8 @@ else{
                  }
 
 
-         int numbytes = sendto(sock, &frame,0,0,(struct sockaddr*)remote, remote_length);
-         cout << "File sent from client is: " << fname << endl;
-         fclose(file);
+
+        }
     }
     else if(token_command == "delete")
     {
