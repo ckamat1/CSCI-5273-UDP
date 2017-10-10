@@ -1,8 +1,11 @@
+# Reliable UDP File transfer
+
+
 There are two folders containing server and client code and their respective makefiles.
 
 Compile client.cpp and server.cpp by running make.
 
-
+Client code implements non-blocking socket.
 
 Client.cpp
 ---------------------------------------
